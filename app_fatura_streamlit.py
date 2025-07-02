@@ -123,75 +123,42 @@ if usuario:
                                    file_name=nome_arquivo,
                                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-    if menu == "📊 Analisar Arquivos DRE":
-        st.header("Análise de Arquivos DRE Preenchidos")
+    if arquivos_salvos:
+    selecao = st.selectbox("Selecione um arquivo:", arquivos_salvos)
 
-        arquivos_salvos = [f for f in os.listdir(pasta_usuario) if f.endswith((".xlsx", ".xlsm"))]
+    if selecao:
+        caminho_arquivo = os.path.join(pasta_usuario, selecao)
+        try:
+            df = pd.read_excel(caminho_arquivo, sheet_name=None)
+            abas_validas = [aba for aba in df.keys() if aba.startswith("itau-") or aba.startswith("sicoob-")]
 
-        with st.expander("📥 Subir um DRE Manualmente (opcional)"):
-            arquivo = st.file_uploader("Envie um arquivo DRE (.xlsx ou .xlsm):", type=["xlsx", "xlsm"])
-            if arquivo:
-                caminho_arquivo = os.path.join(pasta_usuario, arquivo.name)
-                with open(caminho_arquivo, "wb") as f:
-                    f.write(arquivo.getbuffer())
-                st.success("Arquivo salvo! Recarregue a aba para visualizar.")
+            if abas_validas:
+                todas_entradas = []
+                for aba in abas_validas:
+                    dados = df[aba]
+                    dados = dados.dropna(how="all")
+                    if not dados.empty and "Data" in dados.columns and "Estabelecimento" in dados.columns and "Valor (R$)" in dados.columns:
+                        dados["Mês/Ano"] = aba.split("-")[1] if "-" in aba else ""
+                        todas_entradas.append(dados)
 
-        if arquivos_salvos:
-            selecao = st.selectbox("Selecione um arquivo:", arquivos_salvos)
-            caminho_arquivo = os.path.join(pasta_usuario, selecao)
+                if todas_entradas:
+                    consolidado = pd.concat(todas_entradas, ignore_index=True)
+                    st.success(f"Arquivo {selecao} carregado com sucesso.")
 
-            try:
-                df = pd.read_excel(caminho_arquivo, sheet_name=None)
-                abas_validas = [aba for aba in df.keys() if aba.startswith("itau-") or aba.startswith("sicoob-")]
-
-                if abas_validas:
-                    todas_entradas = []
-                    for aba in abas_validas:
-                        dados = df[aba]
-                        dados = dados.dropna(how="all")
-                        if not dados.empty and "Data" in dados.columns and "Estabelecimento" in dados.columns and "Valor (R$)" in dados.columns:
-                            dados["Mês/Ano"] = aba.split("-")[1] if "-" in aba else ""
-                            todas_entradas.append(dados)
-
-                    if todas_entradas:
-                        consolidado = pd.concat(todas_entradas, ignore_index=True)
+                    with st.expander("📄 Visualizar DRE"):
                         st.dataframe(consolidado)
 
-                        st.header("🎯 Metas e Comparações")
-                        categorias = st.multiselect("Defina as categorias para controle (use a coluna 'Descrição Conta'):", consolidado["Descrição Conta"].dropna().unique())
-
-                        metas = {}
-                        for cat in categorias:
-                            meta = st.number_input(f"Meta de gasto para '{cat}' (R$):", min_value=0.0, step=50.0)
-                            metas[cat] = meta
-
+                    if st.button("Gerar Gráficos e Análises"):
                         resumo = consolidado.groupby("Descrição Conta")["Valor (R$)"].sum().reset_index()
                         resumo = resumo[resumo["Descrição Conta"].notna()]
-
-                        for idx, row in resumo.iterrows():
-                            desc = row["Descrição Conta"]
-                            total = row["Valor (R$)"]
-                            st.write(f"**{desc}:** R$ {total:.2f}")
-                            if desc in metas:
-                                if total > metas[desc]:
-                                    st.error(f"Ultrapassou a meta de {metas[desc]:.2f} em {total - metas[desc]:.2f} R$")
-                                else:
-                                    st.success(f"Dentro da meta de {metas[desc]:.2f} R$")
 
                         st.header("📈 Gráfico de Gastos por Categoria")
                         fig = px.pie(resumo, names="Descrição Conta", values="Valor (R$)", title="Distribuição dos Gastos")
                         st.plotly_chart(fig)
 
-                        st.header("🔮 Previsão de Gastos Futuros")
+                        st.header("🔮 Evolução de Gastos Mensal")
                         gasto_mensal = consolidado.groupby("Mês/Ano")["Valor (R$)"].sum().reset_index()
                         st.line_chart(gasto_mensal.set_index("Mês/Ano"))
 
-                        media_gasto = gasto_mensal["Valor (R$)"].mean()
-                        st.info(f"Gasto médio mensal atual: R$ {media_gasto:.2f}")
-                        economia = st.number_input("Quanto pretende economizar por mês (R$):", min_value=0.0, step=50.0)
-                        previsao_final_ano = (12 * (media_gasto - economia))
-
-                        st.success(f"Se manter essa economia, previsão de gasto no final do ano: R$ {previsao_final_ano:.2f}")
-
-            except Exception as e:
-                st.error(f"Erro ao processar o arquivo: {e}")
+        except Exception as e:
+            st.error(f"Erro ao processar o arquivo: {e}")

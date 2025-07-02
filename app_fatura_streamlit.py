@@ -12,7 +12,6 @@ st.set_page_config(page_title="Gestão Completa de Faturas e DRE", layout="wide"
 
 st.title("💼 Faturas e Análises de DRE")
 
-# Login simples
 usuario = st.text_input("Digite seu nome de usuário:")
 if usuario:
     pasta_usuario = f"dados/{usuario}"
@@ -123,3 +122,37 @@ if usuario:
                                    data=output,
                                    file_name=nome_arquivo,
                                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+    if menu == "📊 Analisar Arquivos DRE":
+        st.header("Análise de Arquivos DRE Preenchidos")
+        arquivos_salvos = [f for f in os.listdir(pasta_usuario) if f.endswith((".xlsx", ".xlsm"))]
+
+        if arquivos_salvos:
+            selecao = st.selectbox("Selecione um arquivo:", arquivos_salvos)
+            caminho_arquivo = os.path.join(pasta_usuario, selecao)
+
+            try:
+                df = pd.read_excel(caminho_arquivo, sheet_name=None)
+                abas_validas = [aba for aba in df.keys() if aba.startswith("itau-") or aba.startswith("sicoob-")]
+
+                if abas_validas:
+                    todas_entradas = []
+                    for aba in abas_validas:
+                        dados = df[aba]
+                        dados = dados.dropna(how="all")
+                        if not dados.empty and "Data" in dados.columns and "Estabelecimento" in dados.columns and "Valor (R$)" in dados.columns:
+                            dados["Mês/Ano"] = aba.split("-")[1] if "-" in aba else ""
+                            todas_entradas.append(dados)
+
+                    if todas_entradas:
+                        consolidado = pd.concat(todas_entradas, ignore_index=True)
+                        st.dataframe(consolidado)
+
+                        st.subheader("Resumo por Categoria")
+                        resumo = consolidado.groupby("Descrição Conta")["Valor (R$)"].sum().reset_index()
+                        resumo = resumo[resumo["Descrição Conta"].notna()]
+
+                        st.plotly_chart(px.pie(resumo, names="Descrição Conta", values="Valor (R$)", title="Distribuição dos Gastos"))
+
+            except Exception as e:
+                st.error(f"Erro ao processar o arquivo: {e}")

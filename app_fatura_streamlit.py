@@ -122,8 +122,12 @@ if menu == "📊 Analisar DRE Consolidado":
         try:
             df = pd.read_excel(arquivo, sheet_name="DRE Consolidado")
 
+            # Limpeza do cabeçalho para remover "R$" e espaços extras
+            df.columns = df.columns.str.replace(r'R\$\s*', '', regex=True).str.strip()
+
             if "Descrição Conta" in df.columns:
                 meses_colunas = [col for col in df.columns if re.match(r'.*/\d{2,4}', str(col))]
+
                 if not meses_colunas:
                     st.warning("Não foram encontradas colunas de meses (ex: jun/25, jul/25).")
                 else:
@@ -133,7 +137,7 @@ if menu == "📊 Analisar DRE Consolidado":
                     st.header("📊 Gastos por Categoria (Total por Mês)")
                     df_melt = df.melt(id_vars=["Descrição Conta"], value_vars=meses_colunas,
                                       var_name="Mês/Ano", value_name="Valor (R$)")
-                    
+
                     df_melt["Valor (R$)"] = df_melt["Valor (R$)"].replace({"R\\$": "", ",": "."}, regex=True).astype(float)
 
                     grafico = px.bar(df_melt, x="Descrição Conta", y="Valor (R$)", color="Mês/Ano",

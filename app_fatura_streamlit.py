@@ -123,42 +123,56 @@ if usuario:
                                    file_name=nome_arquivo,
                                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-    if arquivos_salvos:
-    selecao = st.selectbox("Selecione um arquivo:", arquivos_salvos)
+    if menu == "📊 Analisar Arquivos DRE":
+        st.header("Análise de Arquivos DRE Preenchidos")
 
-    if selecao:
-        caminho_arquivo = os.path.join(pasta_usuario, selecao)
-        try:
-            df = pd.read_excel(caminho_arquivo, sheet_name=None)
-            abas_validas = [aba for aba in df.keys() if aba.startswith("itau-") or aba.startswith("sicoob-")]
+        arquivos_salvos = [f for f in os.listdir(pasta_usuario) if f.endswith((".xlsx", ".xlsm"))]
 
-            if abas_validas:
-                todas_entradas = []
-                for aba in abas_validas:
-                    dados = df[aba]
-                    dados = dados.dropna(how="all")
-                    if not dados.empty and "Data" in dados.columns and "Estabelecimento" in dados.columns and "Valor (R$)" in dados.columns:
-                        dados["Mês/Ano"] = aba.split("-")[1] if "-" in aba else ""
-                        todas_entradas.append(dados)
+        with st.expander("📥 Subir um DRE Manualmente (opcional)"):
+            arquivo = st.file_uploader("Envie um arquivo DRE (.xlsx ou .xlsm):", type=["xlsx", "xlsm"])
+            if arquivo:
+                caminho_arquivo = os.path.join(pasta_usuario, arquivo.name)
+                with open(caminho_arquivo, "wb") as f:
+                    f.write(arquivo.getbuffer())
+                st.success("Arquivo salvo! Recarregue a aba para visualizar.")
 
-                if todas_entradas:
-                    consolidado = pd.concat(todas_entradas, ignore_index=True)
-                    st.success(f"Arquivo {selecao} carregado com sucesso.")
+        if arquivos_salvos:
+            selecao = st.selectbox("Selecione um arquivo:", arquivos_salvos)
 
-                    with st.expander("📄 Visualizar DRE"):
-                        st.dataframe(consolidado)
+            if selecao:
+                caminho_arquivo = os.path.join(pasta_usuario, selecao)
 
-                    if st.button("Gerar Gráficos e Análises"):
-                        resumo = consolidado.groupby("Descrição Conta")["Valor (R$)"].sum().reset_index()
-                        resumo = resumo[resumo["Descrição Conta"].notna()]
+                try:
+                    df = pd.read_excel(caminho_arquivo, sheet_name=None)
+                    abas_validas = [aba for aba in df.keys() if aba.startswith("itau-") or aba.startswith("sicoob-")]
 
-                        st.header("📈 Gráfico de Gastos por Categoria")
-                        fig = px.pie(resumo, names="Descrição Conta", values="Valor (R$)", title="Distribuição dos Gastos")
-                        st.plotly_chart(fig)
+                    if abas_validas:
+                        todas_entradas = []
+                        for aba in abas_validas:
+                            dados = df[aba]
+                            dados = dados.dropna(how="all")
+                            if not dados.empty and "Data" in dados.columns and "Estabelecimento" in dados.columns and "Valor (R$)" in dados.columns:
+                                dados["Mês/Ano"] = aba.split("-")[1] if "-" in aba else ""
+                                todas_entradas.append(dados)
 
-                        st.header("🔮 Evolução de Gastos Mensal")
-                        gasto_mensal = consolidado.groupby("Mês/Ano")["Valor (R$)"].sum().reset_index()
-                        st.line_chart(gasto_mensal.set_index("Mês/Ano"))
+                        if todas_entradas:
+                            consolidado = pd.concat(todas_entradas, ignore_index=True)
+                            st.success(f"Arquivo {selecao} carregado com sucesso.")
 
-        except Exception as e:
-            st.error(f"Erro ao processar o arquivo: {e}")
+                            with st.expander("📄 Visualizar DRE Completo"):
+                                st.dataframe(consolidado)
+
+                            if st.button("Gerar Gráficos e Análises"):
+                                resumo = consolidado.groupby("Descrição Conta")["Valor (R$)"].sum().reset_index()
+                                resumo = resumo[resumo["Descrição Conta"].notna()]
+
+                                st.header("📈 Gráfico de Gastos por Categoria")
+                                fig = px.pie(resumo, names="Descrição Conta", values="Valor (R$)", title="Distribuição dos Gastos")
+                                st.plotly_chart(fig)
+
+                                st.header("🔮 Evolução de Gastos Mensal")
+                                gasto_mensal = consolidado.groupby("Mês/Ano")["Valor (R$)"].sum().reset_index()
+                                st.line_chart(gasto_mensal.set_index("Mês/Ano"))
+
+                except Exception as e:
+                    st.error(f"Erro ao processar o arquivo: {e}")

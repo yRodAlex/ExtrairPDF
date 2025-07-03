@@ -45,40 +45,37 @@ if menu == "📁 Converter Fatura PDF → DRE":
                         meses_dict = {'JAN':'01','FEV':'02','MAR':'03','ABR':'04','MAI':'05','JUN':'06',
                                       'JUL':'07','AGO':'08','SET':'09','OUT':'10','NOV':'11','DEZ':'12'}
 
-                        padrao_linha = re.compile(r'^\d{2}\s+[A-Z]{3}\s+.+\s+\S+\s+R?\$?\s*\d+[,\.]?\d*$')
-
                         for linha in linhas:
                             if "DATA" in linha and "DESCRIÇÃO" in linha and "VALOR" in linha:
                                 lendo = True
                                 continue
 
                             if lendo:
-                                if "TOTAL" in linha or "THIAGO" in linha:
+                                if "TOTAL" in linha:
+                                    break
+
+                                partes = linha.strip().split()
+                                if len(partes) < 5:
                                     continue
 
-                                if padrao_linha.match(linha.strip()):
-                                    partes = linha.strip().split()
-                                    if len(partes) < 4:
-                                        continue
+                                dia = partes[0]
+                                mes_abrev = partes[1].upper()
+                                mes_num = meses_dict.get(mes_abrev, "00")
+                                data_formatada = f"{dia}/{mes_num}"
 
-                                    dia = partes[0]
-                                    mes_abrev = partes[1].upper()
-                                    mes_num = meses_dict.get(mes_abrev, "00")
-                                    data_formatada = f"{dia}/{mes_num}"
+                                valor_bruto = partes[-1].replace('.', '').replace(',', '.').replace('R$', '')
+                                try:
+                                    valor_float = float(valor_bruto)
+                                except:
+                                    continue
 
-                                    valor_bruto = partes[-1].replace('.', '').replace(',', '.').replace('R$', '')
-                                    try:
-                                        valor_float = float(valor_bruto)
-                                    except:
-                                        continue
+                                cidade = partes[-2].replace("R$", "").strip()
+                                descricao = " ".join(partes[2:-2])
 
-                                    cidade = partes[-2]
-                                    descricao = " ".join(partes[2:-2])
-
-                                    datas.append(data_formatada)
-                                    estabelecimentos.append(descricao.strip())
-                                    cidades.append(cidade.strip())
-                                    valores.append(valor_float)
+                                datas.append(data_formatada)
+                                estabelecimentos.append(descricao.strip())
+                                cidades.append(cidade.strip())
+                                valores.append(valor_float)
 
         if datas:
             output = BytesIO()
@@ -130,7 +127,6 @@ if menu == "📊 Analisar DRE Consolidado":
         try:
             df = pd.read_excel(arquivo, sheet_name="DRE Consolidado")
 
-            # Limpeza do cabeçalho
             df.columns = df.columns.str.replace(r'R\$\s*', '', regex=True).str.strip()
 
             if "Descrição Conta" in df.columns:

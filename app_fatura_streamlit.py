@@ -118,3 +118,62 @@ if menu == "📁 Converter Fatura PDF → DRE":
                                data=output,
                                file_name=f'DRE_{banco}_{mes}_{ano}.xlsx',
                                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+# ------------ Aba de Análise do DRE Consolidado -----------------
+
+if menu == "📊 Analisar DRE Consolidado":
+    st.header("Análise Exclusiva da aba 'DRE Consolidado'")
+
+    arquivo = st.file_uploader("Importe o arquivo DRE (.xlsx ou .xlsm) com a aba 'DRE Consolidado':", type=["xlsx", "xlsm"])
+
+    if arquivo:
+        try:
+            df = pd.read_excel(arquivo, sheet_name="DRE Consolidado")
+
+            # Limpeza do cabeçalho
+            df.columns = df.columns.str.replace(r'R\$\s*', '', regex=True).str.strip()
+
+            if "Descrição Conta" in df.columns:
+                meses_colunas = [col for col in df.columns if re.match(r'.*/\d{2,4}', str(col))]
+
+                if not meses_colunas:
+                    st.warning("Não foram encontradas colunas de meses (ex: jun/25, jul/25).")
+                else:
+                    df = df.dropna(subset=["Descrição Conta"])
+                    st.dataframe(df)
+
+                    st.header("📊 Gastos por Categoria (Total por Mês)")
+                    df_melt = df.melt(id_vars=["Descrição Conta"], value_vars=meses_colunas,
+                                      var_name="Mês/Ano", value_name="Valor (R$)")
+
+                    df_melt["Valor (R$)"] = df_melt["Valor (R$)"].replace({"R\\$": "", ",": "."}, regex=True).astype(float)
+
+                    grafico = px.bar(df_melt, x="Descrição Conta", y="Valor (R$)", color="Mês/Ano",
+                                     title="Comparativo de Gastos por Categoria e Mês", barmode="group")
+                    st.plotly_chart(grafico)
+
+                    st.header("🎯 Comparação Total por Categoria")
+                    col_total = [col for col in df.columns if "Total" in col]
+                    if col_total:
+                        df_total = df[["Descrição Conta"] + col_total]
+                        fig_pie = px.pie(df_total, names="Descrição Conta", values=col_total[0],
+                                         title="Distribuição dos Gastos Totais por Categoria")
+                        st.plotly_chart(fig_pie)
+
+                    st.header("🔮 Previsão e Metas de Economia")
+                    gasto_mensal = df_melt.groupby("Mês/Ano")["Valor (R$)"].sum().reset_index()
+                    st.line_chart(gasto_mensal.set_index("Mês/Ano"))
+
+                    media_gasto = gasto_mensal["Valor (R$)"].mean()
+                    st.info(f"Gasto médio mensal atual: R$ {media_gasto:.2f}")
+
+                    economia = st.number_input("Quanto pretende economizar por mês (R$):", min_value=0.0, step=50.0)
+                    previsao_final_ano = 12 * (media_gasto - economia)
+
+                    st.success(f"Se atingir essa economia, previsão de gasto anual: R$ {previsao_final_ano:.2f}")
+
+            else:
+                st.warning("A aba 'DRE Consolidado' não possui a coluna 'Descrição Conta'.")
+
+        except Exception as e:
+            st.error(f"Erro ao processar o arquivo: {e}")

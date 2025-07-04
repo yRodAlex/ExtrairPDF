@@ -12,6 +12,57 @@ st.title("💼 Faturas e Análises de DRE")
 
 menu = st.sidebar.radio("Menu", ["📁 Converter Fatura PDF → DRE", "📊 Analisar DRE Consolidado"])
 
+
+# ------------ Função de Agrupamento Avançado Itaú -----------------
+
+def extrair_lancamentos_itau_avancado(pdf_path):
+    datas, estabelecimentos, cidades, valores = [], [], [], []
+
+    with pdfplumber.open(pdf_path) as pdf:
+        for pagina in pdf.pages:
+            palavras = pagina.extract_words()
+
+            linhas_agrupadas = {}
+            tolerancia_altura = 2  # Permitir pequenas variações de altura
+
+            for palavra in palavras:
+                y_coord = round(palavra['top'] / tolerancia_altura) * tolerancia_altura
+                if y_coord not in linhas_agrupadas:
+                    linhas_agrupadas[y_coord] = []
+                linhas_agrupadas[y_coord].append(palavra)
+
+            for y in sorted(linhas_agrupadas.keys()):
+                linha = sorted(linhas_agrupadas[y], key=lambda x: x['x0'])
+
+                data = ""
+                descricao = ""
+                valor = ""
+
+                for palavra in linha:
+                    texto = palavra['text']
+                    x0 = palavra['x0']
+
+                    if re.match(r'\d{2}/\d{2}', texto) and x0 < 100:
+                        data = texto
+                    elif re.match(r'-?\d{1,3}(?:\.\d{3})*,\d{2}$', texto) and x0 > 400:
+                        valor = texto
+                    else:
+                        descricao += texto + " "
+
+                if data and valor and descricao.strip():
+                    try:
+                        valor_float = float(valor.replace('.', '').replace(',', '.'))
+                    except:
+                        continue
+
+                    datas.append(data)
+                    estabelecimentos.append(descricao.strip())
+                    cidades.append("")
+                    valores.append(valor_float)
+
+    return datas, estabelecimentos, cidades, valores
+
+
 # ------------ Aba de Transformação PDF → DRE -----------------
 
 if menu == "📁 Converter Fatura PDF → DRE":
@@ -24,46 +75,54 @@ if menu == "📁 Converter Fatura PDF → DRE":
 
     if uploaded_file and mes and ano:
         datas, estabelecimentos, cidades, valores = [], [], [], []
-        with pdfplumber.open(uploaded_file) as pdf:
-            for pagina in pdf.pages:
-                texto = pagina.extract_text()
-                if texto:
-                    linhas = texto.split('\n')
-                    lendo = False
 
-                    for linha in linhas:
-                        linha = linha.strip()
+        if banco == "itau":
+            with open("temp.pdf", "wb") as f:
+                f.write(uploaded_file.read())
+            datas, estabelecimentos, cidades, valores = extrair_lancamentos_itau_avancado("temp.pdf")
 
-                        # Detecta início de um bloco de cartão
-                        if re.search(r"Lançamentos.*cartão.*", linha, re.IGNORECASE) or "Lançamentos: compras e saques" in linha:
-                            lendo = True
-                            continue
+        elif banco == "sicoob":
+            with pdfplumber.open(uploaded_file) as pdf:
+                lendo = False
+                meses_dict = {'JAN':'01','FEV':'02','MAR':'03','ABR':'04','MAI':'05','JUN':'06',
+                              'JUL':'07','AGO':'08','SET':'09','OUT':'10','NOV':'11','DEZ':'12'}
 
-                        if lendo:
-                            if linha == "" or "Total dos lançamentos atuais" in linha:
-                                lendo = False
+                for pagina in pdf.pages:
+                    texto = pagina.extract_text()
+                    if texto:
+                        linhas = texto.split('\n')
+
+                        for linha in linhas:
+                            if "DATA" in linha and "DESCRIÇÃO" in linha and "VALOR" in linha:
+                                lendo = True
                                 continue
 
-                            partes = linha.split()
-                            if len(partes) < 3:
-                                continue
+                            if lendo:
+                                if "TOTAL" in linha:
+                                    break
 
-                            if re.match(r'\d{2}/\d{2}', partes[0]) and re.match(r'-?\d{1,3}(?:\.\d{3})*,\d{2}$', partes[-1]):
-                                data = partes[0]
-                                valor_bruto = partes[-1].replace('.', '').replace(',', '.')
-                                estabelecimento = " ".join(partes[1:-1])
+                                partes = linha.strip().split()
+                                if len(partes) < 5:
+                                    continue
 
+                                dia = partes[0]
+                                mes_abrev = partes[1].upper()
+                                mes_num = meses_dict.get(mes_abrev, "00")
+                                data_formatada = f"{dia}/{mes_num}"
+
+                                valor_bruto = partes[-1].replace('.', '').replace(',', '.').replace('R$', '')
                                 try:
-                                    valor = float(valor_bruto)
+                                    valor_float = float(valor_bruto)
                                 except:
                                     continue
 
-                                datas.append(data)
-                                estabelecimentos.append(estabelecimento)
-                                cidades.append("")  # Itaú não fornece cidade
-                                valores.append(valor)
+                                cidade = partes[-2].replace("R$", "").strip()
+                                descricao = " ".join(partes[2:-2])
 
-                    # Continua procurando próximos cartões nas páginas seguintes
+                                datas.append(data_formatada)
+                                estabelecimentos.append(descricao.strip())
+                                cidades.append(cidade.strip())
+                                valores.append(valor_float)
 
         if datas:
             output = BytesIO()
@@ -103,6 +162,7 @@ if menu == "📁 Converter Fatura PDF → DRE":
                                data=output,
                                file_name=f'DRE_{banco}_{mes}_{ano}.xlsx',
                                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
 
 # ------------ Aba de Análise do DRE Consolidado -----------------
 

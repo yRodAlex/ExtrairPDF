@@ -11,7 +11,7 @@ st.title("💼 Faturas e Análises de DRE")
 
 menu = st.sidebar.radio("Menu", ["📁 Converter Fatura PDF → DRE", "📊 Analisar DRE Consolidado"])
 
-# ---------------- Função com Coordenadas Itaú -----------------
+# ---------------- Função Melhorada com Coordenadas Itaú -----------------
 
 def extrair_lancamentos_itau_por_cartao(pdf_path):
     datas, estabelecimentos, valores, cartoes = [], [], [], []
@@ -22,17 +22,19 @@ def extrair_lancamentos_itau_por_cartao(pdf_path):
 
             cartao_atual = None
             for i, palavra in enumerate(palavras):
-                # Detecta o bloco do cartão
+                # Detecta o número do cartão
                 if re.search(r'\(final \d{4}\)', palavra['text']):
                     cartao_atual = re.search(r'\(final (\d{4})\)', palavra['text']).group(1)
                 
-                # Verifica se o padrão de data existe
+                # Detecta padrão de lançamento
                 if re.match(r'\d{2}/\d{2}', palavra['text']):
+                    if cartao_atual is None:
+                        continue  # Ignora se cartão não foi detectado ainda
+
                     try:
                         data = palavras[i]['text']
                         estabelecimento = palavras[i + 1]['text']
                         
-                        # Busca o valor ignorando outras colunas, pode ajustar conforme o layout
                         valor_texto = palavras[i + 2]['text'].replace('.', '').replace(',', '.')
                         valor = float(valor_texto)
                         
@@ -66,7 +68,12 @@ if menu == "📁 Converter Fatura PDF → DRE":
 
         if datas:
             st.success(f"Total de Lançamentos extraídos: {len(datas)}")
-            st.info(f"Cartões encontrados: {', '.join(sorted(set(cartoes)))}")
+
+            cartoes_validos = [c for c in cartoes if c is not None]
+            if cartoes_validos:
+                st.info(f"Cartões encontrados: {', '.join(sorted(set(cartoes_validos)))}")
+            else:
+                st.warning("Nenhum número de cartão identificado nos lançamentos.")
 
             df_resultado = pd.DataFrame({
                 "Cartão": cartoes,

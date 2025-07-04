@@ -29,74 +29,41 @@ if menu == "📁 Converter Fatura PDF → DRE":
                 texto = pagina.extract_text()
                 if texto:
                     linhas = texto.split('\n')
+                    lendo = False
 
-                    if banco == "itau":
-                        lendo = False
-                        regex = re.compile(r'(\d{2}/\d{2})\s+(.*)\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})')
+                    for linha in linhas:
+                        linha = linha.strip()
 
-                        for linha in linhas:
-                            linha = linha.strip()
+                        # Detecta início de um bloco de cartão
+                        if re.search(r"Lançamentos.*cartão.*", linha, re.IGNORECASE) or "Lançamentos: compras e saques" in linha:
+                            lendo = True
+                            continue
 
-                            if "Lançamentos:" in linha or "Lançamentos no cartão" in linha:
-                                lendo = True
+                        if lendo:
+                            if linha == "" or "Total dos lançamentos atuais" in linha:
+                                lendo = False
                                 continue
 
-                            if lendo:
-                                match = regex.search(linha)
-                                if match:
-                                    data = match.group(1)
-                                    estabelecimento = match.group(2).strip()
-                                    valor_str = match.group(3).replace('.', '').replace(',', '.')
-                                    
-                                    try:
-                                        valor = float(valor_str)
-                                    except:
-                                        continue
-
-                                    datas.append(data)
-                                    estabelecimentos.append(estabelecimento)
-                                    cidades.append("")  # Itaú não tem cidade separada
-                                    valores.append(valor)
-
-                                if "Total dos lançamentos atuais" in linha or "Lançamentos no cartão" in linha:
-                                    lendo = False
-
-                    elif banco == "sicoob":
-                        lendo = False
-                        meses_dict = {'JAN':'01','FEV':'02','MAR':'03','ABR':'04','MAI':'05','JUN':'06',
-                                      'JUL':'07','AGO':'08','SET':'09','OUT':'10','NOV':'11','DEZ':'12'}
-
-                        for linha in linhas:
-                            if "DATA" in linha and "DESCRIÇÃO" in linha and "VALOR" in linha:
-                                lendo = True
+                            partes = linha.split()
+                            if len(partes) < 3:
                                 continue
 
-                            if lendo:
-                                if "TOTAL" in linha:
-                                    break
+                            if re.match(r'\d{2}/\d{2}', partes[0]) and re.match(r'-?\d{1,3}(?:\.\d{3})*,\d{2}$', partes[-1]):
+                                data = partes[0]
+                                valor_bruto = partes[-1].replace('.', '').replace(',', '.')
+                                estabelecimento = " ".join(partes[1:-1])
 
-                                partes = linha.strip().split()
-                                if len(partes) < 5:
-                                    continue
-
-                                dia = partes[0]
-                                mes_abrev = partes[1].upper()
-                                mes_num = meses_dict.get(mes_abrev, "00")
-                                data_formatada = f"{dia}/{mes_num}"
-
-                                valor_bruto = partes[-1].replace('.', '').replace(',', '.').replace('R$', '')
                                 try:
-                                    valor_float = float(valor_bruto)
+                                    valor = float(valor_bruto)
                                 except:
                                     continue
 
-                                cidade = partes[-2].replace("R$", "").strip()
-                                descricao = " ".join(partes[2:-2])
+                                datas.append(data)
+                                estabelecimentos.append(estabelecimento)
+                                cidades.append("")  # Itaú não fornece cidade
+                                valores.append(valor)
 
-                                datas.append(data_formatada)
-                                estabelecimentos.append(descricao.strip())
-                                cidades.append(cidade.strip())
-                                valores.append(valor_float)
+                    # Continua procurando próximos cartões nas páginas seguintes
 
         if datas:
             output = BytesIO()

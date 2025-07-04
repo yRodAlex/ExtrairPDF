@@ -31,14 +31,35 @@ if menu == "📁 Converter Fatura PDF → DRE":
                     linhas = texto.split('\n')
 
                     if banco == "itau":
-                        regex = re.compile(r'(\d{2}/\d{2})\s+(.+?)\s+(\d+\.\d{2}|\d+,\d{2})')
+                        lendo = False
+                        regex_linha = re.compile(r'(\d{2}/\d{2})\s+(.+?)\s+(\d{1,3}(?:\.\d{3})*,\d{2}|\d+\.\d{2}|\d+,\d{2})')
+
                         for linha in linhas:
-                            match = regex.search(linha)
-                            if match:
-                                datas.append(match.group(1))
-                                estabelecimentos.append(match.group(2).strip())
-                                cidades.append("")  # Itaú não tem cidade separada
-                                valores.append(float(match.group(3).replace('.', '').replace(',', '.')))
+                            linha = linha.strip()
+                            
+                            if "Lançamentos:" in linha or "Lançamentos no cartão" in linha:
+                                lendo = True
+                                continue
+
+                            if lendo:
+                                match = regex_linha.search(linha)
+                                if match:
+                                    data = match.group(1)
+                                    estabelecimento = match.group(2).strip()
+                                    valor_str = match.group(3).replace('.', '').replace(',', '.')
+                                    
+                                    try:
+                                        valor = float(valor_str)
+                                    except:
+                                        continue
+
+                                    datas.append(data)
+                                    estabelecimentos.append(estabelecimento)
+                                    cidades.append("")  # Itaú não tem cidade separada
+                                    valores.append(valor)
+                                
+                                if "Total dos lançamentos atuais" in linha:
+                                    lendo = False
 
                     elif banco == "sicoob":
                         lendo = False
@@ -126,7 +147,6 @@ if menu == "📊 Analisar DRE Consolidado":
     if arquivo:
         try:
             df = pd.read_excel(arquivo, sheet_name="DRE Consolidado")
-
             df.columns = df.columns.str.replace(r'R\$\s*', '', regex=True).str.strip()
 
             if "Descrição Conta" in df.columns:

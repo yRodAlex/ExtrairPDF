@@ -11,41 +11,63 @@ st.title("💼 Faturas e Análises de DRE")
 
 menu = st.sidebar.radio("Menu", ["📁 Converter Fatura PDF → DRE", "📊 Analisar DRE Consolidado"])
 
-# ---------------- Função Melhorada com extract_text() -----------------
+# ---------------- Função Final, Robusta e Corrigida -----------------
 
-def extrair_lancamentos_itau_texto(pdf_path):
+def extrair_lancamentos_itau_preciso(pdf_path):
     datas, estabelecimentos, valores, cartoes = [], [], [], []
     
     with pdfplumber.open(pdf_path) as pdf:
         cartao_atual = None
+        buffer_linha = ""
 
         for pagina in pdf.pages:
             texto = pagina.extract_text()
-
             if not texto:
                 continue
 
             linhas = texto.split('\n')
-
             for linha in linhas:
+                # Detecta o cartão atual
                 if re.search(r'\(final \d{4}\)', linha):
                     cartao_atual = re.search(r'\(final (\d{4})\)', linha).group(1)
 
-                match = re.search(r'(\d{2}/\d{2})\s+(.*?)\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})', linha)
+                linha = linha.strip()
+
+                # Se for linha de lançamento (data, descrição e valor)
+                match = re.search(r'(\d{2}/\d{2})\s+(.*?)\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})$', linha)
                 if match and cartao_atual:
                     data = match.group(1)
-                    estabelecimento = match.group(2).strip()
+                    descricao = match.group(2).strip()
                     valor_str = match.group(3).replace('.', '').replace(',', '.')
 
                     try:
                         valor = float(valor_str)
+                        datas.append(data)
+                        estabelecimentos.append(descricao)
+                        valores.append(valor)
+                        cartoes.append(cartao_atual)
                     except:
                         continue
+                else:
+                    # Se a linha não bate, acumula no buffer e tenta juntar na próxima
+                    buffer_linha += " " + linha.strip()
 
-                    datas.append(data)
-                    estabelecimentos.append(estabelecimento)
-                    valores.append(valor)
-                    cartoes.append(cartao_atual)
+                    # Tenta extrair juntando buffer
+                    match2 = re.search(r'(\d{2}/\d{2})\s+(.*?)\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})$', buffer_linha)
+                    if match2 and cartao_atual:
+                        data = match2.group(1)
+                        descricao = match2.group(2).strip()
+                        valor_str = match2.group(3).replace('.', '').replace(',', '.')
+
+                        try:
+                            valor = float(valor_str)
+                            datas.append(data)
+                            estabelecimentos.append(descricao)
+                            valores.append(valor)
+                            cartoes.append(cartao_atual)
+                            buffer_linha = ""
+                        except:
+                            continue
 
     return datas, estabelecimentos, valores, cartoes
 
@@ -67,16 +89,18 @@ if menu == "📁 Converter Fatura PDF → DRE":
             with open(caminho_temp, "wb") as f:
                 f.write(uploaded_file.read())
             
-            datas, estabelecimentos, valores, cartoes = extrair_lancamentos_itau_texto(caminho_temp)
+            datas, estabelecimentos, valores, cartoes = extrair_lancamentos_itau_preciso(caminho_temp)
 
         if datas:
             st.success(f"Total de Lançamentos extraídos: {len(datas)}")
 
-            cartoes_validos = [c for c in cartoes if c is not None]
-            if cartoes_validos:
-                st.info(f"Cartões encontrados: {', '.join(sorted(set(cartoes_validos)))}")
-            else:
-                st.warning("Nenhum número de cartão identificado nos lançamentos.")
+            total_por_cartao = pd.DataFrame({
+                "Cartão": cartoes,
+                "Valor (R$)": valores
+            }).groupby("Cartão").sum().reset_index()
+
+            for _, row in total_por_cartao.iterrows():
+                st.info(f"Cartão final {row['Cartão']}: Total de R$ {row['Valor (R$)']:.2f}")
 
             df_resultado = pd.DataFrame({
                 "Cartão": cartoes,

@@ -13,7 +13,7 @@ st.title("💼 Faturas e Análises de DRE")
 menu = st.sidebar.radio("Menu", ["📁 Converter Fatura PDF → DRE", "📊 Analisar DRE Consolidado"])
 
 
-# ------------ Função de Agrupamento Avançado Itaú -----------------
+# ---------------- Função Agrupamento Avançado Itaú -----------------
 
 def extrair_lancamentos_itau_avancado(pdf_path):
     datas, estabelecimentos, cidades, valores = [], [], [], []
@@ -23,7 +23,7 @@ def extrair_lancamentos_itau_avancado(pdf_path):
             palavras = pagina.extract_words()
 
             linhas_agrupadas = {}
-            tolerancia_altura = 2  # Permitir pequenas variações de altura
+            tolerancia_altura = 2  # Permite pequenas variações de altura
 
             for palavra in palavras:
                 y_coord = round(palavra['top'] / tolerancia_altura) * tolerancia_altura
@@ -63,7 +63,7 @@ def extrair_lancamentos_itau_avancado(pdf_path):
     return datas, estabelecimentos, cidades, valores
 
 
-# ------------ Aba de Transformação PDF → DRE -----------------
+# ---------------- Aba de Transformação PDF → DRE -----------------
 
 if menu == "📁 Converter Fatura PDF → DRE":
     st.header("Conversão de Fatura para DRE (Excel)")
@@ -77,9 +77,11 @@ if menu == "📁 Converter Fatura PDF → DRE":
         datas, estabelecimentos, cidades, valores = [], [], [], []
 
         if banco == "itau":
-            with open("temp.pdf", "wb") as f:
+            caminho_temp = "temp_fatura.pdf"
+            with open(caminho_temp, "wb") as f:
                 f.write(uploaded_file.read())
-            datas, estabelecimentos, cidades, valores = extrair_lancamentos_itau_avancado("temp.pdf")
+
+            datas, estabelecimentos, cidades, valores = extrair_lancamentos_itau_avancado(caminho_temp)
 
         elif banco == "sicoob":
             with pdfplumber.open(uploaded_file) as pdf:
@@ -125,6 +127,16 @@ if menu == "📁 Converter Fatura PDF → DRE":
                                 valores.append(valor_float)
 
         if datas:
+            st.success(f"Lançamentos extraídos: {len(datas)}")
+
+            df_resultado = pd.DataFrame({
+                "Data": datas,
+                "Estabelecimento": estabelecimentos,
+                "Cidade": cidades,
+                "Valor (R$)": valores
+            })
+            st.dataframe(df_resultado)
+
             output = BytesIO()
             wb = Workbook()
             nome_aba = f'{banco}-{mes}{ano}'
@@ -157,14 +169,17 @@ if menu == "📁 Converter Fatura PDF → DRE":
             wb.save(output)
             output.seek(0)
 
-            st.success(f"Lançamentos extraídos: {len(datas)}")
-            st.download_button(label="📥 Baixar Excel DRE Gerado",
-                               data=output,
-                               file_name=f'DRE_{banco}_{mes}_{ano}.xlsx',
-                               mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            st.download_button(
+                label="📥 Baixar Excel DRE Gerado",
+                data=output,
+                file_name=f'DRE_{banco}_{mes}_{ano}.xlsx',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+        else:
+            st.warning("Nenhum lançamento encontrado no PDF. Verifique o arquivo e tente novamente.")
 
 
-# ------------ Aba de Análise do DRE Consolidado -----------------
+# ---------------- Aba de Análise do DRE Consolidado -----------------
 
 if menu == "📊 Analisar DRE Consolidado":
     st.header("Análise Exclusiva da aba 'DRE Consolidado'")

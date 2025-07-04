@@ -11,39 +11,42 @@ st.title("💼 Faturas e Análises de DRE")
 
 menu = st.sidebar.radio("Menu", ["📁 Converter Fatura PDF → DRE", "📊 Analisar DRE Consolidado"])
 
-# ---------------- Função Melhorada com Coordenadas Itaú -----------------
+# ---------------- Função Melhorada com extract_text() -----------------
 
-def extrair_lancamentos_itau_por_cartao(pdf_path):
+def extrair_lancamentos_itau_texto(pdf_path):
     datas, estabelecimentos, valores, cartoes = [], [], [], []
     
     with pdfplumber.open(pdf_path) as pdf:
-        for pagina in pdf.pages:
-            palavras = pagina.extract_words(use_text_flow=True, keep_blank_chars=False)
+        cartao_atual = None
 
-            cartao_atual = None
-            for i, palavra in enumerate(palavras):
-                # Detecta o número do cartão
-                if re.search(r'\(final \d{4}\)', palavra['text']):
-                    cartao_atual = re.search(r'\(final (\d{4})\)', palavra['text']).group(1)
-                
-                # Detecta padrão de lançamento
-                if re.match(r'\d{2}/\d{2}', palavra['text']):
-                    if cartao_atual is None:
-                        continue  # Ignora se cartão não foi detectado ainda
+        for pagina in pdf.pages:
+            texto = pagina.extract_text()
+
+            if not texto:
+                continue
+
+            linhas = texto.split('\n')
+
+            for linha in linhas:
+                if re.search(r'\(final \d{4}\)', linha):
+                    cartao_atual = re.search(r'\(final (\d{4})\)', linha).group(1)
+
+                match = re.search(r'(\d{2}/\d{2})\s+(.*?)\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})', linha)
+                if match and cartao_atual:
+                    data = match.group(1)
+                    estabelecimento = match.group(2).strip()
+                    valor_str = match.group(3).replace('.', '').replace(',', '.')
 
                     try:
-                        data = palavras[i]['text']
-                        estabelecimento = palavras[i + 1]['text']
-                        
-                        valor_texto = palavras[i + 2]['text'].replace('.', '').replace(',', '.')
-                        valor = float(valor_texto)
-                        
-                        datas.append(data)
-                        estabelecimentos.append(estabelecimento)
-                        valores.append(valor)
-                        cartoes.append(cartao_atual)
+                        valor = float(valor_str)
                     except:
                         continue
+
+                    datas.append(data)
+                    estabelecimentos.append(estabelecimento)
+                    valores.append(valor)
+                    cartoes.append(cartao_atual)
+
     return datas, estabelecimentos, valores, cartoes
 
 # ---------------- Aba de Transformação PDF → DRE -----------------
@@ -64,7 +67,7 @@ if menu == "📁 Converter Fatura PDF → DRE":
             with open(caminho_temp, "wb") as f:
                 f.write(uploaded_file.read())
             
-            datas, estabelecimentos, valores, cartoes = extrair_lancamentos_itau_por_cartao(caminho_temp)
+            datas, estabelecimentos, valores, cartoes = extrair_lancamentos_itau_texto(caminho_temp)
 
         if datas:
             st.success(f"Total de Lançamentos extraídos: {len(datas)}")

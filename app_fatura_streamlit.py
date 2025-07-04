@@ -32,17 +32,17 @@ if menu == "📁 Converter Fatura PDF → DRE":
 
                     if banco == "itau":
                         lendo = False
-                        regex_linha = re.compile(r'(\d{2}/\d{2})\s+(.+?)\s+(\d{1,3}(?:\.\d{3})*,\d{2}|\d+\.\d{2}|\d+,\d{2})')
+                        regex = re.compile(r'(\d{2}/\d{2})\s+(.*)\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})')
 
                         for linha in linhas:
                             linha = linha.strip()
-                            
+
                             if "Lançamentos:" in linha or "Lançamentos no cartão" in linha:
                                 lendo = True
                                 continue
 
                             if lendo:
-                                match = regex_linha.search(linha)
+                                match = regex.search(linha)
                                 if match:
                                     data = match.group(1)
                                     estabelecimento = match.group(2).strip()
@@ -57,8 +57,8 @@ if menu == "📁 Converter Fatura PDF → DRE":
                                     estabelecimentos.append(estabelecimento)
                                     cidades.append("")  # Itaú não tem cidade separada
                                     valores.append(valor)
-                                
-                                if "Total dos lançamentos atuais" in linha:
+
+                                if "Total dos lançamentos atuais" in linha or "Lançamentos no cartão" in linha:
                                     lendo = False
 
                     elif banco == "sicoob":

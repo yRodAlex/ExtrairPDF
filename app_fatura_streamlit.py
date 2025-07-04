@@ -14,7 +14,7 @@ st.title("💼 Faturas e Análises de DRE")
 menu = st.sidebar.radio("Menu", ["📁 Converter Fatura PDF → DRE", "📊 Analisar DRE Consolidado"])
 
 
-# ---------------- Função Final com OCR por Área -----------------
+# ---------------- Função Final com OCR Corrigido -----------------
 
 def extrair_lancamentos_itau_ocr_area(pdf_path):
     datas, estabelecimentos, valores, cartoes = [], [], [], []
@@ -24,12 +24,12 @@ def extrair_lancamentos_itau_ocr_area(pdf_path):
 
         for pagina in pdf.pages:
             imagem = pagina.to_image(resolution=300)
-            
-            # Corta parte do cabeçalho e foca na região dos lançamentos (ajustável conforme layout)
-            cropped = imagem.crop((0, 150, imagem.width, imagem.height))
-            
-            pil_img = cropped.original.convert("RGB")
-            texto = pytesseract.image_to_string(pil_img, lang="por")
+            pil_img = imagem.original.convert("RGB")
+
+            # Recorta parte superior do PDF para remover cabeçalho (ajustável)
+            cropped = pil_img.crop((0, 150, pil_img.width, pil_img.height))
+
+            texto = pytesseract.image_to_string(cropped, lang="por")
 
             linhas = texto.split('\n')
             buffer_descricao = ""
@@ -68,7 +68,7 @@ def extrair_lancamentos_itau_ocr_area(pdf_path):
                 else:
                     buffer_descricao += " " + linha.strip()
 
-            # Finaliza o último lançamento da página
+            # Finaliza último lançamento da página
             if data_atual and buffer_descricao:
                 match_valor = re.search(r'(-?\d{1,3}(?:\.\d{3})*,\d{2})', buffer_descricao)
                 if match_valor:

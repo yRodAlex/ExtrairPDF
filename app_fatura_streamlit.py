@@ -5,6 +5,8 @@ import re
 import plotly.express as px
 from io import BytesIO
 from openpyxl import Workbook
+from PIL import Image
+import pytesseract
 
 st.set_page_config(page_title="Gestão Completa de Faturas e DRE", layout="wide")
 
@@ -13,52 +15,41 @@ st.title("💼 Faturas e Análises de DRE")
 menu = st.sidebar.radio("Menu", ["📁 Converter Fatura PDF → DRE", "📊 Analisar DRE Consolidado"])
 
 
-# ---------------- Função Agrupamento Avançado Itaú -----------------
+# ---------------- Função com OCR -----------------
 
-def extrair_lancamentos_itau_avancado(pdf_path):
+def extrair_lancamentos_itau_ocr(pdf_path):
     datas, estabelecimentos, cidades, valores = [], [], [], []
 
     with pdfplumber.open(pdf_path) as pdf:
         for pagina in pdf.pages:
-            palavras = pagina.extract_words()
+            texto = pagina.extract_text()
 
-            linhas_agrupadas = {}
-            tolerancia_altura = 2  # Permite pequenas variações de altura
+            # Se não extrair texto estruturado, tenta OCR
+            if not texto or len(texto.strip()) < 10:
+                imagem = pagina.to_image(resolution=300)
+                pil_image = Image.frombytes("RGB", imagem.original.size, imagem.original.convert("RGB").tobytes())
+                texto = pytesseract.image_to_string(pil_image, lang='por')
 
-            for palavra in palavras:
-                y_coord = round(palavra['top'] / tolerancia_altura) * tolerancia_altura
-                if y_coord not in linhas_agrupadas:
-                    linhas_agrupadas[y_coord] = []
-                linhas_agrupadas[y_coord].append(palavra)
+            linhas = texto.split('\n')
+            regex_linha = re.compile(r'(\d{2}/\d{2})\s+(.*?)\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})')
 
-            for y in sorted(linhas_agrupadas.keys()):
-                linha = sorted(linhas_agrupadas[y], key=lambda x: x['x0'])
+            for linha in linhas:
+                linha = linha.strip()
+                match = regex_linha.search(linha)
+                if match:
+                    data = match.group(1)
+                    descricao = match.group(2).strip()
+                    valor_str = match.group(3).replace('.', '').replace(',', '.')
 
-                data = ""
-                descricao = ""
-                valor = ""
-
-                for palavra in linha:
-                    texto = palavra['text']
-                    x0 = palavra['x0']
-
-                    if re.match(r'\d{2}/\d{2}', texto) and x0 < 100:
-                        data = texto
-                    elif re.match(r'-?\d{1,3}(?:\.\d{3})*,\d{2}$', texto) and x0 > 400:
-                        valor = texto
-                    else:
-                        descricao += texto + " "
-
-                if data and valor and descricao.strip():
                     try:
-                        valor_float = float(valor.replace('.', '').replace(',', '.'))
+                        valor = float(valor_str)
                     except:
                         continue
 
                     datas.append(data)
-                    estabelecimentos.append(descricao.strip())
+                    estabelecimentos.append(descricao)
                     cidades.append("")
-                    valores.append(valor_float)
+                    valores.append(valor)
 
     return datas, estabelecimentos, cidades, valores
 
@@ -81,7 +72,7 @@ if menu == "📁 Converter Fatura PDF → DRE":
             with open(caminho_temp, "wb") as f:
                 f.write(uploaded_file.read())
 
-            datas, estabelecimentos, cidades, valores = extrair_lancamentos_itau_avancado(caminho_temp)
+            datas, estabelecimentos, cidades, valores = extrair_lancamentos_itau_ocr(caminho_temp)
 
         elif banco == "sicoob":
             with pdfplumber.open(uploaded_file) as pdf:
@@ -177,61 +168,3 @@ if menu == "📁 Converter Fatura PDF → DRE":
             )
         else:
             st.warning("Nenhum lançamento encontrado no PDF. Verifique o arquivo e tente novamente.")
-
-
-# ---------------- Aba de Análise do DRE Consolidado -----------------
-
-if menu == "📊 Analisar DRE Consolidado":
-    st.header("Análise Exclusiva da aba 'DRE Consolidado'")
-
-    arquivo = st.file_uploader("Importe o arquivo DRE (.xlsx ou .xlsm) com a aba 'DRE Consolidado':", type=["xlsx", "xlsm"])
-
-    if arquivo:
-        try:
-            df = pd.read_excel(arquivo, sheet_name="DRE Consolidado")
-            df.columns = df.columns.str.replace(r'R\$\s*', '', regex=True).str.strip()
-
-            if "Descrição Conta" in df.columns:
-                meses_colunas = [col for col in df.columns if re.match(r'.*/\d{2,4}', str(col))]
-
-                if not meses_colunas:
-                    st.warning("Não foram encontradas colunas de meses (ex: jun/25, jul/25).")
-                else:
-                    df = df.dropna(subset=["Descrição Conta"])
-                    st.dataframe(df)
-
-                    st.header("📊 Gastos por Categoria (Total por Mês)")
-                    df_melt = df.melt(id_vars=["Descrição Conta"], value_vars=meses_colunas,
-                                      var_name="Mês/Ano", value_name="Valor (R$)")
-
-                    df_melt["Valor (R$)"] = df_melt["Valor (R$)"].replace({"R\\$": "", ",": "."}, regex=True).astype(float)
-
-                    grafico = px.bar(df_melt, x="Descrição Conta", y="Valor (R$)", color="Mês/Ano",
-                                     title="Comparativo de Gastos por Categoria e Mês", barmode="group")
-                    st.plotly_chart(grafico)
-
-                    st.header("🎯 Comparação Total por Categoria")
-                    col_total = [col for col in df.columns if "Total" in col]
-                    if col_total:
-                        df_total = df[["Descrição Conta"] + col_total]
-                        fig_pie = px.pie(df_total, names="Descrição Conta", values=col_total[0],
-                                         title="Distribuição dos Gastos Totais por Categoria")
-                        st.plotly_chart(fig_pie)
-
-                    st.header("🔮 Previsão e Metas de Economia")
-                    gasto_mensal = df_melt.groupby("Mês/Ano")["Valor (R$)"].sum().reset_index()
-                    st.line_chart(gasto_mensal.set_index("Mês/Ano"))
-
-                    media_gasto = gasto_mensal["Valor (R$)"].mean()
-                    st.info(f"Gasto médio mensal atual: R$ {media_gasto:.2f}")
-
-                    economia = st.number_input("Quanto pretende economizar por mês (R$):", min_value=0.0, step=50.0)
-                    previsao_final_ano = 12 * (media_gasto - economia)
-
-                    st.success(f"Se atingir essa economia, previsão de gasto anual: R$ {previsao_final_ano:.2f}")
-
-            else:
-                st.warning("A aba 'DRE Consolidado' não possui a coluna 'Descrição Conta'.")
-
-        except Exception as e:
-            st.error(f"Erro ao processar o arquivo: {e}")

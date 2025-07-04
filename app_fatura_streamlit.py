@@ -4,8 +4,6 @@ import pandas as pd
 import re
 from io import BytesIO
 from openpyxl import Workbook
-from PIL import Image
-import pytesseract
 
 st.set_page_config(page_title="Gestão Completa de Faturas e DRE", layout="wide")
 
@@ -14,74 +12,54 @@ st.title("💼 Faturas e Análises de DRE")
 menu = st.sidebar.radio("Menu", ["📁 Converter Fatura PDF → DRE", "📊 Analisar DRE Consolidado"])
 
 
-# ---------------- Função Final com OCR Corrigido -----------------
+# ---------------- Função Final Só com Texto -----------------
 
-def extrair_lancamentos_itau_ocr_area(pdf_path):
+def extrair_lancamentos_itau_texto(pdf_path):
     datas, estabelecimentos, valores, cartoes = [], [], [], []
 
     with pdfplumber.open(pdf_path) as pdf:
         cartao_atual = None
+        buffer_linha = ""
 
         for pagina in pdf.pages:
-            imagem = pagina.to_image(resolution=300)
-            pil_img = imagem.original.convert("RGB")
-
-            # Recorta parte superior do PDF para remover cabeçalho (ajustável)
-            cropped = pil_img.crop((0, 150, pil_img.width, pil_img.height))
-
-            texto = pytesseract.image_to_string(cropped, lang="por")
+            texto = pagina.extract_text()
+            if not texto:
+                continue
 
             linhas = texto.split('\n')
-            buffer_descricao = ""
-            data_atual = None
 
             for linha in linhas:
                 linha = linha.strip()
 
                 # Detecta o cartão
-                if re.search(r'final \d{4}', linha, re.IGNORECASE):
-                    cartao_atual = re.search(r'final (\d{4})', linha, re.IGNORECASE).group(1)
+                if re.search(r'\(final \d{4}\)', linha):
+                    cartao_atual = re.search(r'\(final (\d{4})\)', linha).group(1)
 
                 if not cartao_atual:
                     continue
 
-                # Detecta início de lançamento com data
-                match_data = re.match(r'(\d{2}/\d{2})\s+(.*)', linha)
-                if match_data:
-                    if data_atual and buffer_descricao:
-                        match_valor = re.search(r'(-?\d{1,3}(?:\.\d{3})*,\d{2})', buffer_descricao)
-                        if match_valor:
-                            valor_str = match_valor.group(1).replace('.', '').replace(',', '.')
-                            try:
-                                valor = float(valor_str)
-                                descricao_limpa = re.sub(r'(-?\d{1,3}(?:\.\d{3})*,\d{2})', '', buffer_descricao).strip()
-                                datas.append(data_atual)
-                                estabelecimentos.append(descricao_limpa)
-                                valores.append(valor)
-                                cartoes.append(cartao_atual)
-                            except:
-                                pass
+                buffer_linha += " " + linha
 
-                    data_atual = match_data.group(1)
-                    buffer_descricao = match_data.group(2).strip()
+                # Detecta lançamento completo no buffer
+                match = re.search(r'(\d{2}/\d{2})\s+(.*?)\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})', buffer_linha)
+                if match:
+                    data = match.group(1)
+                    descricao = match.group(2).strip()
+                    valor_str = match.group(3).replace('.', '').replace(',', '.')
 
-                else:
-                    buffer_descricao += " " + linha.strip()
-
-            # Finaliza último lançamento da página
-            if data_atual and buffer_descricao:
-                match_valor = re.search(r'(-?\d{1,3}(?:\.\d{3})*,\d{2})', buffer_descricao)
-                if match_valor:
-                    valor_str = match_valor.group(1).replace('.', '').replace(',', '.')
                     try:
                         valor = float(valor_str)
-                        descricao_limpa = re.sub(r'(-?\d{1,3}(?:\.\d{3})*,\d{2})', '', buffer_descricao).strip()
-                        datas.append(data_atual)
-                        estabelecimentos.append(descricao_limpa)
+                        datas.append(data)
+                        estabelecimentos.append(descricao)
                         valores.append(valor)
                         cartoes.append(cartao_atual)
                     except:
                         pass
+
+                    buffer_linha = ""  # Limpa após capturar
+
+                if len(buffer_linha) > 300:
+                    buffer_linha = ""  # Evita acumular lixo
 
     return datas, estabelecimentos, valores, cartoes
 
@@ -104,7 +82,7 @@ if menu == "📁 Converter Fatura PDF → DRE":
             with open(caminho_temp, "wb") as f:
                 f.write(uploaded_file.read())
 
-            datas, estabelecimentos, valores, cartoes = extrair_lancamentos_itau_ocr_area(caminho_temp)
+            datas, estabelecimentos, valores, cartoes = extrair_lancamentos_itau_texto(caminho_temp)
 
         if datas:
             st.success(f"Total de Lançamentos extraídos: {len(datas)}")
